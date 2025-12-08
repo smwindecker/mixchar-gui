@@ -303,6 +303,7 @@ server <- function(input, output, session) {
   observeEvent(input$run_decon, {
     req(rv$processed)
     np <- switch(input$n_peaks, auto = NULL, `3` = 3, `4` = 4)
+    rv$decon <- NULL  # hide outputs/download until fresh results are ready
     withProgress(message = "Deconvolving...", value = 0, {
       rv$decon <- deconvolve(rv$processed, seed = input$decon_seed, n_peaks = np)
     })
@@ -529,7 +530,9 @@ server <- function(input, output, session) {
              div(
                class = "d-flex align-items-center justify-content-between mb-2",
                h3("3. Pyrolysis phase deconvolution"),
-               downloadButton("dl_weights_tbl", "Download table", class = "btn-secondary btn-sm")
+               if (!is.null(rv$decon)) {
+                 downloadButton("dl_weights_tbl", "Download table", class = "btn-secondary btn-sm")
+               }
              ),
              p("Weights table from deconvolve()."),
              DTOutput("weights_tbl")
@@ -540,7 +543,9 @@ server <- function(input, output, session) {
                column(
                  width = 12,
                  align = "right",
-                 downloadButton("dl_decon_plot", "Download decon plot", class = "btn-primary")
+                 if (!is.null(rv$decon)) {
+                   downloadButton("dl_decon_plot", "Download decon plot", class = "btn-primary")
+                 }
                )
              ),
              plotOutput("decon_plot", height = "520px")
@@ -549,7 +554,9 @@ server <- function(input, output, session) {
              div(
                class = "d-flex align-items-center justify-content-between mb-2",
                h3("5. Carbon fractions"),
-               downloadButton("dl_fractions_tbl", "Download table", class = "btn-secondary btn-sm")
+               if (!is.null(rv$processed) && !is.null(rv$decon)) {
+                 downloadButton("dl_fractions_tbl", "Download table", class = "btn-secondary btn-sm")
+               }
              ),
              p("Adjust assumed fixed carbon percentages for each pseudo-component in the sidebar if needed."),
              DTOutput("fractions_tbl")
