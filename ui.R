@@ -41,8 +41,19 @@ ui <- fluidPage(
       hr(),
       conditionalPanel(
         "input.step == 'read'",
-        fileInput("datafile", "Upload CSV", accept = c(".csv")),
-        numericInput("skip_rows", "Rows to skip (metadata)", value = NA, min = 0, step = 1),
+        uiOutput("datafile_ui"),
+        div(
+          class = "mb-2",
+          tags$label("Rows to skip (metadata)", `for` = "skip_rows", class = "form-label mb-1"),
+          div(
+            class = "d-flex align-items-center gap-2",
+            numericInput(
+              "skip_rows", label = NULL,
+              value = 0, min = 0, step = 1, width = "160px"
+            ),
+            actionButton("apply_skip", "Apply", class = "btn-secondary btn-sm")
+          )
+        ),
         actionButton("use_example", "Use example data", class = "btn-secondary")
       ),
       conditionalPanel(

@@ -30,7 +30,19 @@ guess_col <- function(df, candidates) {
 }
 
 server <- function(input, output, session) {
-  rv <- reactiveValues(raw = NULL, processed = NULL, decon = NULL)
+  rv <- reactiveValues(
+    raw = NULL,
+    processed = NULL,
+    decon = NULL,
+    file_reset = 0,
+    source = "none",
+    example_path = NULL
+  )
+
+  output$datafile_ui <- renderUI({
+    rv$file_reset  # invalidate when reset is requested
+    fileInput("datafile", "Upload CSV", accept = c(".csv"))
+  })
 
   reset_column_inputs <- function() {
     updateSelectInput(session, "temp_col", choices = c("Select column" = ""), selected = "")
@@ -68,6 +80,7 @@ server <- function(input, output, session) {
     updateNumericInput(session, "init_mass", value = example_defaults$init_mass)
     updateNumericInput(session, "pyro_start", value = example_defaults$pyro_start)
     updateNumericInput(session, "pyro_end", value = example_defaults$pyro_end)
+    rv$file_reset <- rv$file_reset + 1  # clear any previously uploaded file in the UI
   }
 
   observeEvent(input$use_example, {
@@ -79,6 +92,8 @@ server <- function(input, output, session) {
     } else {
       stop("example data not found; place it in this app folder or its parent.")
     }
+    rv$source <- "example"
+    rv$example_path <- example_path
     df <- read.csv(example_path, skip = example_defaults$skip_rows, check.names = FALSE)
     rv$raw <- df
     set_column_inputs(df, selected = list(
@@ -92,16 +107,45 @@ server <- function(input, output, session) {
 
   observeEvent(input$datafile, {
     req(input$datafile)
-    if (is.na(input$skip_rows)) {
-      showNotification("Please enter rows to skip before uploading your data.", type = "error")
-      return()
-    }
-    df <- read.csv(input$datafile$datapath, skip = input$skip_rows, check.names = FALSE)
+    # Reset skip rows to default (0) when user uploads their own file, e.g. after using example data.
+    skip_val <- 0
+    updateNumericInput(session, "skip_rows", value = skip_val)
+
+    df <- read.csv(input$datafile$datapath, skip = skip_val, check.names = FALSE)
     rv$raw <- df
     rv$processed <- NULL
     rv$decon <- NULL
+    rv$source <- "upload"
+    rv$example_path <- NULL
     reset_processing_inputs()
     set_column_inputs(df)
+  })
+
+  observeEvent(input$apply_skip, {
+    skip_val <- if (is.na(input$skip_rows)) 0 else input$skip_rows
+
+    # Determine which dataset to reload based on source
+    data_path <- NULL
+    if (!is.null(input$datafile) && rv$source == "upload") {
+      data_path <- input$datafile$datapath
+    } else if (rv$source == "example" && !is.null(rv$example_path) && file.exists(rv$example_path)) {
+      data_path <- rv$example_path
+    }
+
+    if (is.null(data_path)) {
+      showNotification("No data to reload. Upload a file or use example data first.", type = "error")
+      return()
+    }
+
+    df <- read.csv(data_path, skip = skip_val, check.names = FALSE)
+    rv$raw <- df
+    rv$processed <- NULL
+    rv$decon <- NULL
+    set_column_inputs(df, selected = list(
+      temp = input$temp_col,
+      mass = input$mass_col,
+      time = input$time_col
+    ))
   })
 
   output$raw_preview <- renderDataTable({
@@ -155,9 +199,12 @@ server <- function(input, output, session) {
   output$stage_summary_tbl <- renderDataTable({
     req(rv$processed)
     df <- stage_summary(rv$processed)
-    df$mass_start <- round(df$mass_start, 5)
-    df$mass_end <- round(df$mass_end, 5)
-    datatable(df, options = list(dom = "t"))
+    numeric_cols <- which(vapply(df, is.numeric, logical(1)))
+    dt <- datatable(df, options = list(dom = "t"))
+    if (length(numeric_cols)) {
+      dt <- formatRound(dt, columns = numeric_cols, digits = 2)
+    }
+    dt
   })
 
   output$processed_data_tbl <- renderDataTable({
@@ -206,7 +253,13 @@ server <- function(input, output, session) {
 
   output$weights_tbl <- renderDataTable({
     req(rv$decon)
-    datatable(rv$decon$weights, options = list(dom = "t"))
+    df <- rv$decon$weights
+    numeric_cols <- which(vapply(df, is.numeric, logical(1)))
+    dt <- datatable(df, options = list(dom = "t"))
+    if (length(numeric_cols)) {
+      dt <- formatRound(dt, columns = numeric_cols, digits = 2)
+    }
+    dt
   })
 
   output$decon_plot <- renderPlot({
