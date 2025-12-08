@@ -38,7 +38,7 @@ server <- function(input, output, session) {
     source = "none",
     example_path = NULL
   )
-
+  
   # Prefer original stage-coded data (e.g., beech has 6 stages) for the temp program plot.
   temp_program_data <- function() {
     if (!is.null(rv$raw)) {
@@ -50,7 +50,7 @@ server <- function(input, output, session) {
       } else {
         NULL
       }
-
+      
       if (!is.null(stage_col)) {
         return(list(
           data = rv$raw,
@@ -60,7 +60,7 @@ server <- function(input, output, session) {
         ))
       }
     }
-
+    
     list(
       data = rv$processed$all_data,
       time_col = "time",
@@ -68,19 +68,19 @@ server <- function(input, output, session) {
       stage_col = "stage"
     )
   }
-
+  
   output$datafile_ui <- renderUI({
     rv$file_reset  # invalidate when reset is requested
     fileInput("datafile", "Upload CSV", accept = c(".csv"))
   })
-
+  
   reset_column_inputs <- function() {
     updateSelectInput(session, "temp_col", choices = c("Select column" = ""), selected = "")
     updateSelectInput(session, "mass_col", choices = c("Select column" = ""), selected = "")
     updateSelectInput(session, "time_col", choices = c("Select column" = ""), selected = "")
     updateSelectInput(session, "stage_col", choices = c("Select column" = ""), selected = "")
   }
-
+  
   set_column_inputs <- function(df, selected = list(temp = "", mass = "", time = "", stage = "")) {
     choices <- c("Select column" = "", names(df))
     updateSelectInput(
@@ -104,13 +104,13 @@ server <- function(input, output, session) {
       selected = if (is.null(selected$stage)) "" else selected$stage
     )
   }
-
+  
   reset_processing_inputs <- function() {
     updateNumericInput(session, "init_mass", value = NA_real_)
     updateNumericInput(session, "pyro_start", value = NA_real_)
     updateNumericInput(session, "pyro_end", value = NA_real_)
   }
-
+  
   apply_example_inputs <- function() {
     updateNumericInput(session, "skip_rows", value = example_defaults$skip_rows)
     updateNumericInput(session, "init_mass", value = example_defaults$init_mass)
@@ -118,7 +118,7 @@ server <- function(input, output, session) {
     updateNumericInput(session, "pyro_end", value = example_defaults$pyro_end)
     rv$file_reset <- rv$file_reset + 1  # clear any previously uploaded file in the UI
   }
-
+  
   observeEvent(input$use_example, {
     apply_example_inputs()
     example_path <- if (file.exists("beech_example.csv")) {
@@ -141,13 +141,13 @@ server <- function(input, output, session) {
     rv$processed <- NULL
     rv$decon <- NULL
   })
-
+  
   observeEvent(input$datafile, {
     req(input$datafile)
     # Reset skip rows to default (0) when user uploads their own file, e.g. after using example data.
     skip_val <- 0
     updateNumericInput(session, "skip_rows", value = skip_val)
-
+    
     df <- read.csv(input$datafile$datapath, skip = skip_val, check.names = FALSE)
     rv$raw <- df
     rv$processed <- NULL
@@ -157,10 +157,10 @@ server <- function(input, output, session) {
     reset_processing_inputs()
     set_column_inputs(df)
   })
-
+  
   observeEvent(input$apply_skip, {
     skip_val <- if (is.na(input$skip_rows)) 0 else input$skip_rows
-
+    
     # Determine which dataset to reload based on source
     data_path <- NULL
     if (!is.null(input$datafile) && rv$source == "upload") {
@@ -168,12 +168,12 @@ server <- function(input, output, session) {
     } else if (rv$source == "example" && !is.null(rv$example_path) && file.exists(rv$example_path)) {
       data_path <- rv$example_path
     }
-
+    
     if (is.null(data_path)) {
       showNotification("No data to reload. Upload a file or use example data first.", type = "error")
       return()
     }
-
+    
     df <- read.csv(data_path, skip = skip_val, check.names = FALSE)
     rv$raw <- df
     rv$processed <- NULL
@@ -185,7 +185,7 @@ server <- function(input, output, session) {
       stage = input$stage_col
     ))
   })
-
+  
   output$raw_preview <- renderDataTable({
     req(rv$raw)
     datatable(
@@ -202,13 +202,13 @@ server <- function(input, output, session) {
       class = "display nowrap"
     )
   })
-
+  
   observeEvent(input$do_process, {
     req(rv$raw)
     temp_col <- input$temp_col
     mass_loss_col <- input$mass_col
     time_col <- input$time_col
-
+    
     validate(
       need(!is.na(input$init_mass), "Initial mass is required."),
       need(!is.na(input$pyro_start), "Pyrolysis start time is required."),
@@ -220,7 +220,7 @@ server <- function(input, output, session) {
       need(all(c(temp_col, mass_loss_col, time_col) %in% names(rv$raw)),
            "Data must include temperature, mass loss, and time columns.")
     )
-
+    
     rv$processed <- process(
       data = rv$raw,
       init_mass = input$init_mass,
@@ -233,7 +233,7 @@ server <- function(input, output, session) {
     )
     rv$decon <- NULL
   })
-
+  
   output$stage_summary_tbl <- renderDataTable({
     req(rv$processed)
     df <- stage_summary(rv$processed)
@@ -244,7 +244,20 @@ server <- function(input, output, session) {
     }
     dt
   })
-
+  
+  output$dl_stage_summary <- downloadHandler(
+    filename = function() "stage_summary.csv",
+    content = function(file) {
+      req(rv$processed)
+      df <- stage_summary(rv$processed)
+      numeric_cols <- which(vapply(df, is.numeric, logical(1)))
+      if (length(numeric_cols)) {
+        df[numeric_cols] <- lapply(df[numeric_cols], round, 2)
+      }
+      write.csv(df, file, row.names = FALSE)
+    }
+  )
+  
   output$temp_program_plot <- renderPlot({
     req(rv$processed)
     cfg <- temp_program_data()
@@ -253,7 +266,7 @@ server <- function(input, output, session) {
                       temp_col = cfg$temp_col,
                       stage_col = cfg$stage_col)
   }, res = 120)
-
+  
   output$dl_temp_program_plot <- downloadHandler(
     filename = function() "temp_program_plot.png",
     content = function(file) {
@@ -267,14 +280,14 @@ server <- function(input, output, session) {
       dev.off()
     }
   )
-
+  
   output$process_plot <- renderPlot({
     req(rv$processed)
     plot(rv$processed,
          plot_type = "mass",
          colour_segments = !isTRUE(input$colour_segments))
   }, res = 120)
-
+  
   output$dl_processed_plot <- downloadHandler(
     filename = function() "processed_plot_mass.png",
     content = function(file) {
@@ -286,7 +299,7 @@ server <- function(input, output, session) {
       dev.off()
     }
   )
-
+  
   observeEvent(input$run_decon, {
     req(rv$processed)
     np <- switch(input$n_peaks, auto = NULL, `3` = 3, `4` = 4)
@@ -294,7 +307,7 @@ server <- function(input, output, session) {
       rv$decon <- deconvolve(rv$processed, seed = input$decon_seed, n_peaks = np)
     })
   })
-
+  
   output$weights_tbl <- renderDataTable({
     req(rv$decon)
     df <- rv$decon$weights
@@ -305,7 +318,20 @@ server <- function(input, output, session) {
     }
     dt
   })
-
+  
+  output$dl_weights_tbl <- downloadHandler(
+    filename = function() "decon_weights.csv",
+    content = function(file) {
+      req(rv$decon)
+      df <- rv$decon$weights
+      numeric_cols <- which(vapply(df, is.numeric, logical(1)))
+      if (length(numeric_cols)) {
+        df[numeric_cols] <- lapply(df[numeric_cols], round, 2)
+      }
+      write.csv(df, file, row.names = FALSE)
+    }
+  )
+  
   output$decon_plot <- renderPlot({
     req(rv$decon)
     probs <- parse_probs(input$band_probs)
@@ -316,7 +342,7 @@ server <- function(input, output, session) {
          n_draws = input$band_draws,
          seed = input$band_seed)
   }, res = 120)
-
+  
   output$dl_decon_plot <- downloadHandler(
     filename = function() "decon_plot.png",
     content = function(file) {
@@ -332,14 +358,14 @@ server <- function(input, output, session) {
       dev.off()
     }
   )
-
+  
   output$fractions_tbl <- renderDataTable({
     req(rv$processed, rv$decon)
     validate(
       need(rv$decon$n_peaks == 3,
            "Carbon fractions currently supported for 3 peaks. Please deconvolve with 3 peaks (or Auto → 3).")
     )
-
+    
     tbl <- tryCatch({
       moisture <- mixchar:::calculate_moisture_content(rv$processed)
       ash <- mixchar:::calculate_ash_content(rv$processed)
@@ -350,7 +376,12 @@ server <- function(input, output, session) {
         dry_basis_fixed_carbon_lignin = input$fc_lig
       )
       totals <- mixchar:::calculate_total_fractions(rv$decon, fc)
-
+      
+      # 支持旧字段名和新字段名：优先 verbose 名称，若不存在则退回缩写 Hfp/Cfp/Lfp
+      fc_H <- if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp
+      fc_C <- if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp
+      fc_L <- if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp
+      
       data.frame(
         Component = c(
           "Moisture", "Ash",
@@ -360,7 +391,7 @@ server <- function(input, output, session) {
         Percent = round(
           c(moisture, ash,
             totals$H_total, totals$C_total, totals$L_total,
-            fc$Hfp, fc$Cfp, fc$Lfp),
+            fc_H, fc_C, fc_L),
           2
         )
       )
@@ -371,10 +402,58 @@ server <- function(input, output, session) {
         Note = paste("Unable to compute fractions:", e$message)
       )
     })
-
+    
     datatable(tbl, options = list(dom = "t"))
   })
-
+  
+  output$dl_fractions_tbl <- downloadHandler(
+    filename = function() "carbon_fractions.csv",
+    content = function(file) {
+      req(rv$processed, rv$decon)
+      if (rv$decon$n_peaks != 3) {
+        stop("Carbon fractions currently supported for 3 peaks. Please deconvolve with 3 peaks (or Auto -> 3).")
+      }
+      
+      tbl <- tryCatch({
+        moisture <- mixchar:::calculate_moisture_content(rv$processed)
+        ash <- mixchar:::calculate_ash_content(rv$processed)
+        fc <- calculate_fixed_carbon_fractions(
+          rv$decon,
+          dry_basis_fixed_carbon_hemicellulose = input$fc_hemi,
+          dry_basis_fixed_carbon_cellulose = input$fc_cell,
+          dry_basis_fixed_carbon_lignin = input$fc_lig
+        )
+        totals <- mixchar:::calculate_total_fractions(rv$decon, fc)
+        
+        fc_H <- if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp
+        fc_C <- if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp
+        fc_L <- if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp
+        
+        data.frame(
+          Component = c(
+            "Moisture", "Ash",
+            "Hemicellulose total", "Cellulose total", "Lignin total",
+            "Hemicellulose fixed carbon", "Cellulose fixed carbon", "Lignin fixed carbon"
+          ),
+          Percent = round(
+            c(moisture, ash,
+              totals$H_total, totals$C_total, totals$L_total,
+              fc_H, fc_C, fc_L),
+            2
+          )
+        )
+      }, error = function(e) {
+        data.frame(
+          Component = "Error",
+          Percent = NA_real_,
+          Note = paste("Unable to compute fractions:", e$message)
+        )
+      })
+      
+      write.csv(tbl, file, row.names = FALSE)
+    }
+  )
+  
   output$step_body <- renderUI({
     switch(input$step,
            read = tagList(
@@ -390,7 +469,11 @@ server <- function(input, output, session) {
              if (is.null(rv$processed)) return(base)
              tagList(
                base,
-               h4("Stage summary"),
+               div(
+                 class = "d-flex align-items-center justify-content-between mb-2",
+                 h4("Stage summary"),
+                 downloadButton("dl_stage_summary", "Download table", class = "btn-secondary btn-sm")
+               ),
                DTOutput("stage_summary_tbl"),
                br(),
                h4("Visualize data"),
@@ -409,7 +492,7 @@ server <- function(input, output, session) {
                  show_temp <- if (is.null(input$show_temp_plot)) TRUE else isTRUE(input$show_temp_plot)
                  show_mass <- if (is.null(input$show_mass_plot)) TRUE else isTRUE(input$show_mass_plot)
                  both <- show_temp && show_mass
-
+                 
                  plots <- list()
                  if (show_temp) {
                    plots[[length(plots) + 1]] <- column(
@@ -433,7 +516,7 @@ server <- function(input, output, session) {
                      plotOutput("process_plot", height = "520px")
                    )
                  }
-
+                 
                  if (length(plots) == 0) {
                    helpText("Select at least one plot to display.")
                  } else {
@@ -443,7 +526,11 @@ server <- function(input, output, session) {
              )
            },
            decon = tagList(
-             h3("3. Pyrolysis phase deconvolution"),
+             div(
+               class = "d-flex align-items-center justify-content-between mb-2",
+               h3("3. Pyrolysis phase deconvolution"),
+               downloadButton("dl_weights_tbl", "Download table", class = "btn-secondary btn-sm")
+             ),
              p("Weights table from deconvolve()."),
              DTOutput("weights_tbl")
            ),
@@ -459,7 +546,11 @@ server <- function(input, output, session) {
              plotOutput("decon_plot", height = "520px")
            ),
            fractions = tagList(
-             h3("5. Carbon fractions"),
+             div(
+               class = "d-flex align-items-center justify-content-between mb-2",
+               h3("5. Carbon fractions"),
+               downloadButton("dl_fractions_tbl", "Download table", class = "btn-secondary btn-sm")
+             ),
              p("Adjust assumed fixed carbon percentages for each pseudo-component in the sidebar if needed."),
              DTOutput("fractions_tbl")
            )
