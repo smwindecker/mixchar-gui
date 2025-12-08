@@ -29,16 +29,15 @@ ui <- fluidPage(
       radioButtons(
         "step", label = NULL,
         choices = c(
-          "1. Load data" = "read",
-          "2. Process data" = "process",
-          "3. Processed plots" = "plots",
-          "4. Pyrolysis phase deconvolution" = "decon",
-          "5. Pyrolysis phase deconvolution plots" = "viz",
-          "6. Carbon fractions" = "fractions"
-        ),
-        selected = "read"
+        "1. Load data" = "read",
+        "2. Process data" = "process",
+        "3. Pyrolysis phase deconvolution" = "decon",
+        "4. Pyrolysis phase deconvolution plots" = "viz",
+        "5. Carbon fractions" = "fractions"
       ),
-      hr(),
+      selected = "read"
+    ),
+    hr(),
       conditionalPanel(
         "input.step == 'read'",
         uiOutput("datafile_ui"),
@@ -66,11 +65,6 @@ ui <- fluidPage(
         numericInput("pyro_start", "Pyrolysis start time", value = NA, step = 0.5),
         numericInput("pyro_end", "Pyrolysis end time", value = NA, step = 0.5),
         actionButton("do_process", "Run process()", class = "btn-primary")
-      ),
-      conditionalPanel(
-        "input.step == 'plots'",
-        checkboxInput("colour_segments", "Black/white only (hide stage annotations)", value = FALSE),
-        NULL
       ),
       conditionalPanel(
         "input.step == 'decon'",

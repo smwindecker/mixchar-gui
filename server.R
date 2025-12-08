@@ -207,37 +207,20 @@ server <- function(input, output, session) {
     dt
   })
 
-  output$processed_data_tbl <- renderDataTable({
-    req(rv$processed)
-    datatable(
-      rv$processed$all_data,
-      options = list(
-        dom = "t",
-        scrollX = TRUE,
-        scrollY = "50vh",
-        paging = FALSE,
-        searching = FALSE,
-        info = FALSE,
-        orderClasses = TRUE
-      ),
-      class = "display nowrap"
-    )
-  })
-
   output$process_plot <- renderPlot({
     req(rv$processed)
     plot(rv$processed,
-         plot_type = input$processed_plot_choice,
+         plot_type = "mass",
          colour_segments = !isTRUE(input$colour_segments))
   }, res = 120)
 
   output$dl_processed_plot <- downloadHandler(
-    filename = function() paste0("processed_plot_", input$processed_plot_choice, ".png"),
+    filename = function() "processed_plot_mass.png",
     content = function(file) {
       req(rv$processed)
       png(file, width = 1200, height = 1200, res = 150)
       plot(rv$processed,
-           plot_type = input$processed_plot_choice,
+           plot_type = "mass",
            colour_segments = !isTRUE(input$colour_segments))
       dev.off()
     }
@@ -338,43 +321,43 @@ server <- function(input, output, session) {
              p("Upload your CSV or use the built-in beech_example.csv; set skip rows if metadata is present."),
              DTOutput("raw_preview", height = "60vh")
            ),
-           process = tagList(
-             h3("2. Process data"),
-             p("Run process() and inspect stage boundaries."),
-             h4("Stage summary"),
-             DTOutput("stage_summary_tbl"),
-             br(),
-             h4("Processed data (all_data)"),
-             DTOutput("processed_data_tbl", height = "50vh")
-           ),
-           plots = tagList(
-             h3("3. Processed plots"),
-             fluidRow(
-               column(
-                 width = 8,
-                 radioButtons(
-                   "processed_plot_choice",
-                   label = "Plot selector",
-                   choices = c("Mass Loss Profiles" = "mass", "DTG Curve" = "rate"),
-                   selected = "mass",
-                   inline = TRUE
+           process = {
+             base <- tagList(
+               h3("2. Process data"),
+               p("Run process() and inspect stage boundaries.")
+             )
+             if (is.null(rv$processed)) return(base)
+             tagList(
+               base,
+               h4("Stage summary"),
+               DTOutput("stage_summary_tbl"),
+               br(),
+               fluidRow(
+                 column(
+                   width = 6,
+                   div(class = "text-muted small mb-2", "Reserved for temperature/time plot"),
+                   div(style = "min-height: 520px;")
+                 ),
+                 column(
+                   width = 6,
+                   h4("Mass Loss Profiles"),
+                   div(
+                     class = "d-flex align-items-center justify-content-between mb-2",
+                     checkboxInput("colour_segments", "Black/white only (hide stage annotations)", value = FALSE),
+                     downloadButton("dl_processed_plot", "Download plot", class = "btn-primary")
+                   ),
+                   plotOutput("process_plot", height = "520px")
                  )
-               ),
-               column(
-                 width = 4,
-                 align = "right",
-                 downloadButton("dl_processed_plot", "Download plot", class = "btn-primary")
                )
-             ),
-             plotOutput("process_plot", height = "520px")
-           ),
+             )
+           },
            decon = tagList(
-             h3("4. Pyrolysis phase deconvolution"),
+             h3("3. Pyrolysis phase deconvolution"),
              p("Weights table from deconvolve()."),
              DTOutput("weights_tbl")
            ),
            viz = tagList(
-             h3("5. Pyrolysis phase deconvolution plots"),
+             h3("4. Pyrolysis phase deconvolution plots"),
              fluidRow(
                column(
                  width = 12,
@@ -385,7 +368,7 @@ server <- function(input, output, session) {
              plotOutput("decon_plot", height = "520px")
            ),
            fractions = tagList(
-             h3("6. Carbon fractions"),
+             h3("5. Carbon fractions"),
              p("Adjust assumed fixed carbon percentages for each pseudo-component in the sidebar if needed."),
              DTOutput("fractions_tbl")
            )
