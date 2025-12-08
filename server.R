@@ -39,6 +39,36 @@ server <- function(input, output, session) {
     example_path = NULL
   )
 
+  # Prefer original stage-coded data (e.g., beech has 6 stages) for the temp program plot.
+  temp_program_data <- function() {
+    if (!is.null(rv$raw)) {
+      stage_col <- if (!is.null(input$stage_col) && nzchar(input$stage_col) &&
+                       input$stage_col %in% names(rv$raw)) {
+        input$stage_col
+      } else if ("stage" %in% names(rv$raw)) {
+        "stage"
+      } else {
+        NULL
+      }
+
+      if (!is.null(stage_col)) {
+        return(list(
+          data = rv$raw,
+          time_col = input$time_col,
+          temp_col = input$temp_col,
+          stage_col = stage_col
+        ))
+      }
+    }
+
+    list(
+      data = rv$processed$all_data,
+      time_col = "time",
+      temp_col = "temp_C",
+      stage_col = "stage"
+    )
+  }
+
   output$datafile_ui <- renderUI({
     rv$file_reset  # invalidate when reset is requested
     fileInput("datafile", "Upload CSV", accept = c(".csv"))
@@ -48,9 +78,10 @@ server <- function(input, output, session) {
     updateSelectInput(session, "temp_col", choices = c("Select column" = ""), selected = "")
     updateSelectInput(session, "mass_col", choices = c("Select column" = ""), selected = "")
     updateSelectInput(session, "time_col", choices = c("Select column" = ""), selected = "")
+    updateSelectInput(session, "stage_col", choices = c("Select column" = ""), selected = "")
   }
 
-  set_column_inputs <- function(df, selected = list(temp = "", mass = "", time = "")) {
+  set_column_inputs <- function(df, selected = list(temp = "", mass = "", time = "", stage = "")) {
     choices <- c("Select column" = "", names(df))
     updateSelectInput(
       session, "temp_col",
@@ -66,6 +97,11 @@ server <- function(input, output, session) {
       session, "time_col",
       choices = choices,
       selected = if (is.null(selected$time)) "" else selected$time
+    )
+    updateSelectInput(
+      session, "stage_col",
+      choices = choices,
+      selected = if (is.null(selected$stage)) "" else selected$stage
     )
   }
 
@@ -99,7 +135,8 @@ server <- function(input, output, session) {
     set_column_inputs(df, selected = list(
       temp = guess_col(df, c("temp", "temperature", "temp_c")),
       mass = guess_col(df, c("mass_loss", "massloss", "mass")),
-      time = guess_col(df, c("time", "t", "minutes", "min"))
+      time = guess_col(df, c("time", "t", "minutes", "min")),
+      stage = if ("stage" %in% names(df)) "stage" else ""
     ))
     rv$processed <- NULL
     rv$decon <- NULL
@@ -144,7 +181,8 @@ server <- function(input, output, session) {
     set_column_inputs(df, selected = list(
       temp = input$temp_col,
       mass = input$mass_col,
-      time = input$time_col
+      time = input$time_col,
+      stage = input$stage_col
     ))
   })
 
@@ -206,6 +244,29 @@ server <- function(input, output, session) {
     }
     dt
   })
+
+  output$temp_program_plot <- renderPlot({
+    req(rv$processed)
+    cfg <- temp_program_data()
+    plot_temp_program(cfg$data,
+                      time_col = cfg$time_col,
+                      temp_col = cfg$temp_col,
+                      stage_col = cfg$stage_col)
+  }, res = 120)
+
+  output$dl_temp_program_plot <- downloadHandler(
+    filename = function() "temp_program_plot.png",
+    content = function(file) {
+      req(rv$processed)
+      png(file, width = 1200, height = 1200, res = 150)
+      cfg <- temp_program_data()
+      plot_temp_program(cfg$data,
+                        time_col = cfg$time_col,
+                        temp_col = cfg$temp_col,
+                        stage_col = cfg$stage_col)
+      dev.off()
+    }
+  )
 
   output$process_plot <- renderPlot({
     req(rv$processed)
@@ -332,23 +393,53 @@ server <- function(input, output, session) {
                h4("Stage summary"),
                DTOutput("stage_summary_tbl"),
                br(),
-               fluidRow(
-                 column(
-                   width = 6,
-                   div(class = "text-muted small mb-2", "Reserved for temperature/time plot"),
-                   div(style = "min-height: 520px;")
-                 ),
-                 column(
-                   width = 6,
-                   h4("Mass Loss Profiles"),
-                   div(
-                     class = "d-flex align-items-center justify-content-between mb-2",
-                     checkboxInput("colour_segments", "Black/white only (hide stage annotations)", value = FALSE),
-                     downloadButton("dl_processed_plot", "Download plot", class = "btn-primary")
-                   ),
-                   plotOutput("process_plot", height = "520px")
-                 )
-               )
+               h4("Visualize data"),
+               div(
+                 class = "d-flex align-items-center gap-4 mb-2",
+                 {
+                   temp_checked <- if (is.null(input$show_temp_plot)) TRUE else isTRUE(input$show_temp_plot)
+                   checkboxInput("show_temp_plot", "Temperature program", value = temp_checked)
+                 },
+                 {
+                   mass_checked <- if (is.null(input$show_mass_plot)) TRUE else isTRUE(input$show_mass_plot)
+                   checkboxInput("show_mass_plot", "Mass loss", value = mass_checked)
+                 }
+               ),
+               {
+                 show_temp <- if (is.null(input$show_temp_plot)) TRUE else isTRUE(input$show_temp_plot)
+                 show_mass <- if (is.null(input$show_mass_plot)) TRUE else isTRUE(input$show_mass_plot)
+                 both <- show_temp && show_mass
+
+                 plots <- list()
+                 if (show_temp) {
+                   plots[[length(plots) + 1]] <- column(
+                     width = if (both) 6 else 12,
+                     div(
+                       class = "d-flex align-items-center justify-content-between mb-2",
+                       span(),
+                       downloadButton("dl_temp_program_plot", "Download plot", class = "btn-primary")
+                     ),
+                     plotOutput("temp_program_plot", height = "520px")
+                   )
+                 }
+                 if (show_mass) {
+                   plots[[length(plots) + 1]] <- column(
+                     width = if (both) 6 else 12,
+                     div(
+                       class = "d-flex align-items-center justify-content-between mb-2",
+                       checkboxInput("colour_segments", "Black/white only (hide stage annotations)", value = FALSE),
+                       downloadButton("dl_processed_plot", "Download plot", class = "btn-primary")
+                     ),
+                     plotOutput("process_plot", height = "520px")
+                   )
+                 }
+
+                 if (length(plots) == 0) {
+                   helpText("Select at least one plot to display.")
+                 } else {
+                   do.call(fluidRow, plots)
+                 }
+               }
              )
            },
            decon = tagList(

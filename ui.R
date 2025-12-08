@@ -61,6 +61,7 @@ ui <- fluidPage(
         selectInput("temp_col", "Temperature column", choices = c("Select column" = "")),
         selectInput("mass_col", "Mass loss column", choices = c("Select column" = "")),
         selectInput("time_col", "Time column", choices = c("Select column" = "")),
+        selectInput("stage_col", "Stage column (optional, for plotting)", choices = c("Select column" = "")),
         numericInput("init_mass", "Initial mass (mg)", value = NA, min = 0, step = 0.01),
         numericInput("pyro_start", "Pyrolysis start time", value = NA, step = 0.5),
         numericInput("pyro_end", "Pyrolysis end time", value = NA, step = 0.5),
