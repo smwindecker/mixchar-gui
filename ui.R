@@ -21,7 +21,13 @@ ui <- fluidPage(
     .shiny-input-container { margin-bottom:12px; }
     "
   )),
-  titlePanel("mixchar Shiny workbench"),
+  titlePanel(
+    div(
+      class = "d-flex align-items-center justify-content-between",
+      h1("mixchar Shiny workbench", class = "mb-0"),
+      uiOutput("repro_script_btn_header")
+    )
+  ),
   sidebarLayout(
     sidebarPanel(
       width = 3,

@@ -110,6 +110,109 @@ server <- function(input, output, session) {
     updateNumericInput(session, "pyro_start", value = NA_real_)
     updateNumericInput(session, "pyro_end", value = NA_real_)
   }
+
+  build_repro_script <- function() {
+    req(rv$processed)
+
+    fmt_bool <- function(x) if (isTRUE(x)) "TRUE" else "FALSE"
+    skip_val <- if (is.na(input$skip_rows)) 0 else input$skip_rows
+    data_path <- if (identical(rv$source, "upload") && !is.null(input$datafile$name)) {
+      input$datafile$name
+    } else if (identical(rv$source, "example") && !is.null(rv$example_path)) {
+      basename(rv$example_path)
+    } else {
+      "path/to/your-data.csv"
+    }
+    stage_arg <- if (!is.null(input$stage_col) && nzchar(input$stage_col)) {
+      shQuote(input$stage_col)
+    } else {
+      "NULL"
+    }
+    colour_segments <- fmt_bool(!isTRUE(input$colour_segments))
+
+    script <- c(
+      "# R script exported from the mixchar Shiny workbench",
+      "library(mixchar)",
+      "",
+      sprintf("data_path <- %s  # adjust to your own file path", shQuote(data_path)),
+      sprintf("raw <- read.csv(data_path, skip = %s, check.names = FALSE)", skip_val),
+      "",
+      "# Process data with the parameters used in the app",
+      "processed <- process(",
+      sprintf("  data = raw,"),
+      sprintf("  init_mass = %s,", input$init_mass),
+      sprintf("  temp = %s,", shQuote(input$temp_col)),
+      sprintf("  mass_loss = %s,", shQuote(input$mass_col)),
+      sprintf("  time = %s,", shQuote(input$time_col)),
+      sprintf("  pyrolysis_start_time = %s,", input$pyro_start),
+      sprintf("  pyrolysis_end_time = %s,", input$pyro_end),
+      "  temp_units = \"C\"",
+      ")",
+      "",
+      "# Summaries and plots",
+      "stage_summary(processed)",
+      "png('processed_plot_mass.png', width = 1200, height = 1200, res = 150)",
+      sprintf("plot(processed, plot_type = 'mass', colour_segments = %s)", colour_segments),
+      "dev.off()",
+      "",
+      "png('temp_program_plot.png', width = 1200, height = 1200, res = 150)",
+      sprintf("plot_temp_program(raw, time_col = %s, temp_col = %s, stage_col = %s)",
+              shQuote(input$time_col), shQuote(input$temp_col), stage_arg),
+      "dev.off()"
+    )
+
+    if (!is.null(rv$decon)) {
+      n_peaks_val <- if (is.null(rv$decon$n_peaks)) "NULL" else rv$decon$n_peaks
+      probs <- parse_probs(input$band_probs)
+      prob_line <- paste(format(probs, trim = TRUE), collapse = ", ")
+
+      decon_lines <- c(
+        "",
+        "# Deconvolution",
+        sprintf("decon <- deconvolve(processed, seed = %s, n_peaks = %s)", input$decon_seed, n_peaks_val),
+        "weights <- decon$weights",
+        "write.csv(weights, 'decon_weights.csv', row.names = FALSE)",
+        "",
+        sprintf("probs <- c(%s)", prob_line),
+        "png('decon_plot.png', width = 1200, height = 1200, res = 150)",
+        sprintf("plot(decon, bw = %s, show_quantile_band = %s, quantile_probs = probs, n_draws = %s, seed = %s)",
+                fmt_bool(input$decon_bw), fmt_bool(input$show_band), input$band_draws, input$band_seed),
+        "dev.off()"
+      )
+
+      if (!is.null(rv$decon$n_peaks) && rv$decon$n_peaks == 3) {
+        fc_lines <- c(
+          "",
+          "# Carbon fractions (3-peak only)",
+          "moisture <- mixchar:::calculate_moisture_content(processed)",
+          "ash <- mixchar:::calculate_ash_content(processed)",
+          sprintf("fc <- calculate_fixed_carbon_fractions(decon, dry_basis_fixed_carbon_hemicellulose = %s, dry_basis_fixed_carbon_cellulose = %s, dry_basis_fixed_carbon_lignin = %s)",
+                  input$fc_hemi, input$fc_cell, input$fc_lig),
+          "totals <- mixchar:::calculate_total_fractions(decon, fc)",
+          "fractions <- data.frame(",
+          "  Component = c(",
+          "    'Moisture', 'Ash',",
+          "    'Hemicellulose total', 'Cellulose total', 'Lignin total',",
+          "    'Hemicellulose fixed carbon', 'Cellulose fixed carbon', 'Lignin fixed carbon'",
+          "  ),",
+          "  Percent = round(c(",
+          "    moisture, ash,",
+          "    totals$H_total, totals$C_total, totals$L_total,",
+          "    if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp,",
+          "    if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp,",
+          "    if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp",
+          "  ), 2)",
+          ")",
+          "write.csv(fractions, 'carbon_fractions.csv', row.names = FALSE)"
+        )
+        decon_lines <- c(decon_lines, fc_lines)
+      }
+
+      script <- c(script, decon_lines)
+    }
+
+    script
+  }
   
   apply_example_inputs <- function() {
     updateNumericInput(session, "skip_rows", value = example_defaults$skip_rows)
@@ -454,6 +557,19 @@ server <- function(input, output, session) {
       write.csv(tbl, file, row.names = FALSE)
     }
   )
+
+  output$dl_repro_script <- downloadHandler(
+    filename = function() "mixchar_reproducible_analysis.R",
+    content = function(file) {
+      req(rv$processed, rv$decon)
+      writeLines(build_repro_script(), con = file, useBytes = TRUE)
+    }
+  )
+
+  output$repro_script_btn_header <- renderUI({
+    if (is.null(rv$processed) || is.null(rv$decon)) return(NULL)
+    downloadButton("dl_repro_script", "Reproducible R script", class = "btn-outline-primary btn-sm")
+  })
   
   output$step_body <- renderUI({
     switch(input$step,
