@@ -565,11 +565,6 @@ server <- function(input, output, session) {
       writeLines(build_repro_script(), con = file, useBytes = TRUE)
     }
   )
-
-  output$repro_script_btn_header <- renderUI({
-    if (is.null(rv$processed) || is.null(rv$decon)) return(NULL)
-    downloadButton("dl_repro_script", "Reproducible R script", class = "btn-outline-primary btn-sm")
-  })
   
   output$step_body <- renderUI({
     switch(input$step,
@@ -665,18 +660,28 @@ server <- function(input, output, session) {
                )
              ),
              plotOutput("decon_plot", height = "520px")
-           ),
-           fractions = tagList(
-             div(
-               class = "d-flex align-items-center justify-content-between mb-2",
-               h3("5. Carbon fractions"),
-               if (!is.null(rv$processed) && !is.null(rv$decon)) {
-                 downloadButton("dl_fractions_tbl", "Download table", class = "btn-secondary btn-sm")
-               }
-             ),
-             p("Adjust assumed fixed carbon percentages for each pseudo-component in the sidebar if needed."),
-             DTOutput("fractions_tbl")
-           )
+            ),
+            fractions = tagList(
+              div(
+                class = "position-relative mb-2",
+                h3("5. Carbon fractions"),
+                if (!is.null(rv$processed) && !is.null(rv$decon)) {
+                  div(
+                   class = "d-flex flex-column align-items-end gap-1",
+                   style = "position:absolute; top:0; right:-12px;",
+                   downloadButton("dl_fractions_tbl", "Download table", class = "btn-secondary btn-sm")
+                  )
+                }
+              ),
+              p("Adjust assumed fixed carbon percentages for each pseudo-component in the sidebar if needed."),
+              DTOutput("fractions_tbl"),
+              if (!is.null(rv$processed) && !is.null(rv$decon)) {
+                div(
+                  class = "d-flex justify-content-end mt-3",
+                  downloadButton("dl_repro_script", "Reproducible R script", class = "btn-outline-primary btn-sm")
+                )
+              }
+            )
     )
   })
 }

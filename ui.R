@@ -17,17 +17,11 @@ ui <- fluidPage(
   tags$head(tags$style(
     "
     .sidebarPanel { background: linear-gradient(180deg,#0f172a 0%,#0f766e 100%); color:#f8fafc; }
-    .main-panel { background:#f8fafc; border-radius:12px; padding:18px; }
+    .main-panel { background:#f8fafc; border-radius:12px; padding:18px; position:relative; }
     .shiny-input-container { margin-bottom:12px; }
     "
   )),
-  titlePanel(
-    div(
-      class = "d-flex align-items-center justify-content-between",
-      h1("mixchar Shiny workbench", class = "mb-0"),
-      uiOutput("repro_script_btn_header")
-    )
-  ),
+  titlePanel(h1("mixchar Shiny workbench", class = "mb-0")),
   sidebarLayout(
     sidebarPanel(
       width = 3,
