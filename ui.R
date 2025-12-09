@@ -59,6 +59,12 @@ ui <- fluidPage(
         "input.step == 'process'",
         helpText("Example data fills defaults; provide values for your own data."),
         selectInput("temp_col", "Temperature column", choices = c("Select column" = "")),
+        selectInput(
+          "temp_units",
+          "Temperature units",
+          choices = c("Celsius (C)" = "C", "Kelvin (K)" = "K"),
+          selected = "C"
+        ),
         selectInput("mass_col", "Mass loss column", choices = c("Select column" = "")),
         selectInput("time_col", "Time column", choices = c("Select column" = "")),
         selectInput("stage_col", "Stage column (optional, for plotting)", choices = c("Select column" = "")),

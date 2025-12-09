@@ -19,7 +19,8 @@ example_defaults <- list(
   skip_rows = 40,
   init_mass = 18.96,
   pyro_start = 127,
-  pyro_end = 191.5
+  pyro_end = 191.5,
+  temp_units = "C"
 )
 
 guess_col <- function(df, candidates) {
@@ -109,6 +110,7 @@ server <- function(input, output, session) {
     updateNumericInput(session, "init_mass", value = NA_real_)
     updateNumericInput(session, "pyro_start", value = NA_real_)
     updateNumericInput(session, "pyro_end", value = NA_real_)
+    updateSelectInput(session, "temp_units", selected = example_defaults$temp_units)
   }
 
   build_repro_script <- function() {
@@ -146,7 +148,7 @@ server <- function(input, output, session) {
       sprintf("  time = %s,", shQuote(input$time_col)),
       sprintf("  pyrolysis_start_time = %s,", input$pyro_start),
       sprintf("  pyrolysis_end_time = %s,", input$pyro_end),
-      "  temp_units = \"C\"",
+      sprintf("  temp_units = %s", shQuote(input$temp_units)),
       ")",
       "",
       "# Summaries and plots",
@@ -219,6 +221,7 @@ server <- function(input, output, session) {
     updateNumericInput(session, "init_mass", value = example_defaults$init_mass)
     updateNumericInput(session, "pyro_start", value = example_defaults$pyro_start)
     updateNumericInput(session, "pyro_end", value = example_defaults$pyro_end)
+    updateSelectInput(session, "temp_units", selected = example_defaults$temp_units)
     rv$file_reset <- rv$file_reset + 1  # clear any previously uploaded file in the UI
   }
   
@@ -311,6 +314,7 @@ server <- function(input, output, session) {
     temp_col <- input$temp_col
     mass_loss_col <- input$mass_col
     time_col <- input$time_col
+    temp_units <- input$temp_units
     
     validate(
       need(!is.na(input$init_mass), "Initial mass is required."),
@@ -319,21 +323,40 @@ server <- function(input, output, session) {
       need(temp_col != "", "Select the temperature column."),
       need(mass_loss_col != "", "Select the mass loss column."),
       need(time_col != "", "Select the time column."),
+      need(!is.null(temp_units) && nzchar(temp_units), "Select the temperature units."),
+      need(temp_units %in% c("C", "K"), "Temperature units must be C or K."),
       need(input$pyro_end > input$pyro_start, "Pyrolysis end must be after start."),
       need(all(c(temp_col, mass_loss_col, time_col) %in% names(rv$raw)),
            "Data must include temperature, mass loss, and time columns.")
     )
     
-    rv$processed <- process(
-      data = rv$raw,
-      init_mass = input$init_mass,
-      temp = temp_col,
-      mass_loss = mass_loss_col,
-      time = time_col,
-      pyrolysis_start_time = input$pyro_start,
-      pyrolysis_end_time = input$pyro_end,
-      temp_units = "C"
-    )
+    proc <- tryCatch({
+      process(
+        data = rv$raw,
+        init_mass = input$init_mass,
+        temp = temp_col,
+        mass_loss = mass_loss_col,
+        time = time_col,
+        pyrolysis_start_time = input$pyro_start,
+        pyrolysis_end_time = input$pyro_end,
+        temp_units = temp_units
+      )
+    }, error = function(e) {
+      rv$processed <- NULL
+      rv$decon <- NULL
+      showNotification(
+        paste(
+          "Processing failed. Please ensure the temperature units (C/K) match the file and the pyrolysis window is appropriate.",
+          e$message
+        ),
+        type = "error",
+        duration = 10
+      )
+      return(NULL)
+    })
+    
+    if (is.null(proc)) return()
+    rv$processed <- proc
     rv$decon <- NULL
   })
   
@@ -407,9 +430,25 @@ server <- function(input, output, session) {
     req(rv$processed)
     np <- switch(input$n_peaks, auto = NULL, `3` = 3, `4` = 4)
     rv$decon <- NULL  # hide outputs/download until fresh results are ready
+    decon_res <- NULL
     withProgress(message = "Deconvolving...", value = 0, {
-      rv$decon <- deconvolve(rv$processed, seed = input$decon_seed, n_peaks = np)
+      decon_res <- tryCatch({
+        deconvolve(rv$processed, seed = input$decon_seed, n_peaks = np)
+      }, error = function(e) {
+        rv$decon <- NULL
+        showNotification(
+          paste(
+            "Deconvolution failed. Check temperature units, pyrolysis window, and data quality.",
+            e$message
+          ),
+          type = "error",
+          duration = 10
+        )
+        NULL
+      })
     })
+    if (is.null(decon_res)) return()
+    rv$decon <- decon_res
   })
   
   output$weights_tbl <- renderDataTable({
