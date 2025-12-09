@@ -362,7 +362,7 @@ server <- function(input, output, session) {
   
   output$stage_summary_tbl <- renderDataTable({
     req(rv$processed)
-    df <- stage_summary(rv$processed)
+    df <- mixchar::stage_summary(rv$processed)
     numeric_cols <- which(vapply(df, is.numeric, logical(1)))
     dt <- datatable(df, options = list(dom = "t"))
     if (length(numeric_cols)) {
@@ -375,7 +375,7 @@ server <- function(input, output, session) {
     filename = function() "stage_summary.csv",
     content = function(file) {
       req(rv$processed)
-      df <- stage_summary(rv$processed)
+      df <- mixchar::stage_summary(rv$processed)
       numeric_cols <- which(vapply(df, is.numeric, logical(1)))
       if (length(numeric_cols)) {
         df[numeric_cols] <- lapply(df[numeric_cols], round, 2)
