@@ -191,18 +191,26 @@ server <- function(input, output, session) {
           sprintf("fc <- calculate_fixed_carbon_fractions(decon, dry_basis_fixed_carbon_hemicellulose = %s, dry_basis_fixed_carbon_cellulose = %s, dry_basis_fixed_carbon_lignin = %s)",
                   input$fc_hemi, input$fc_cell, input$fc_lig),
           "totals <- mixchar:::calculate_total_fractions(decon, fc)",
+          "vol_H <- if (!is.null(fc$volatile_HC_fraction)) fc$volatile_HC_fraction else fc$Hvp",
+          "vol_C <- if (!is.null(fc$volatile_CL_fraction)) fc$volatile_CL_fraction else fc$Cvp",
+          "vol_L <- if (!is.null(fc$volatile_LG_fraction)) fc$volatile_LG_fraction else fc$Lvp",
+          "fc_H <- if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp",
+          "fc_C <- if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp",
+          "fc_L <- if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp",
           "fractions <- data.frame(",
           "  Component = c(",
-          "    'Moisture', 'Ash',",
+          "    'Moisture',",
+          "    'Hemicellulose volatile', 'Cellulose volatile', 'Lignin volatile',",
+          "    'Hemicellulose fixed carbon', 'Cellulose fixed carbon', 'Lignin fixed carbon',",
           "    'Hemicellulose total', 'Cellulose total', 'Lignin total',",
-          "    'Hemicellulose fixed carbon', 'Cellulose fixed carbon', 'Lignin fixed carbon'",
+          "    'Ash'",
           "  ),",
           "  Percent = round(c(",
-          "    moisture, ash,",
+          "    moisture,",
+          "    vol_H, vol_C, vol_L,",
+          "    fc_H, fc_C, fc_L,",
           "    totals$H_total, totals$C_total, totals$L_total,",
-          "    if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp,",
-          "    if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp,",
-          "    if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp",
+          "    ash",
           "  ), 2)",
           ")",
           "write.csv(fractions, 'carbon_fractions.csv', row.names = FALSE)"
@@ -508,10 +516,12 @@ server <- function(input, output, session) {
       need(rv$decon$n_peaks == 3,
            "Carbon fractions currently supported for 3 peaks. Please deconvolve with 3 peaks (or Auto → 3).")
     )
-    
+
     tbl <- tryCatch({
-      moisture <- mixchar:::calculate_moisture_content(rv$processed)
-      ash <- mixchar:::calculate_ash_content(rv$processed)
+      val_or_na <- function(x) if (is.null(x) || length(x) == 0) NA_real_ else x
+
+      moisture <- val_or_na(mixchar:::calculate_moisture_content(rv$processed))
+      ash <- val_or_na(mixchar:::calculate_ash_content(rv$processed))
       fc <- calculate_fixed_carbon_fractions(
         rv$decon,
         dry_basis_fixed_carbon_hemicellulose = input$fc_hemi,
@@ -519,22 +529,31 @@ server <- function(input, output, session) {
         dry_basis_fixed_carbon_lignin = input$fc_lig
       )
       totals <- mixchar:::calculate_total_fractions(rv$decon, fc)
-      
-      # 支持旧字段名和新字段名：优先 verbose 名称，若不存在则退回缩写 Hfp/Cfp/Lfp
-      fc_H <- if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp
-      fc_C <- if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp
-      fc_L <- if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp
-      
+
+      # 支持旧字段名和新字段名：优先 verbose 名称，若不存在则退回缩写
+      vol_H <- val_or_na(if (!is.null(fc$volatile_HC_fraction)) fc$volatile_HC_fraction else fc$Hvp)
+      vol_C <- val_or_na(if (!is.null(fc$volatile_CL_fraction)) fc$volatile_CL_fraction else fc$Cvp)
+      vol_L <- val_or_na(if (!is.null(fc$volatile_LG_fraction)) fc$volatile_LG_fraction else fc$Lvp)
+      fc_H <- val_or_na(if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp)
+      fc_C <- val_or_na(if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp)
+      fc_L <- val_or_na(if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp)
+
       data.frame(
         Component = c(
-          "Moisture", "Ash",
+          "Moisture",
+          "Hemicellulose volatile", "Cellulose volatile", "Lignin volatile",
+          "Hemicellulose fixed carbon", "Cellulose fixed carbon", "Lignin fixed carbon",
           "Hemicellulose total", "Cellulose total", "Lignin total",
-          "Hemicellulose fixed carbon", "Cellulose fixed carbon", "Lignin fixed carbon"
+          "Ash"
         ),
         Percent = round(
-          c(moisture, ash,
+          c(
+            moisture,
+            vol_H, vol_C, vol_L,
+            fc_H, fc_C, fc_L,
             totals$H_total, totals$C_total, totals$L_total,
-            fc_H, fc_C, fc_L),
+            ash
+          ),
           2
         )
       )
@@ -546,7 +565,14 @@ server <- function(input, output, session) {
       )
     })
     
-    datatable(tbl, options = list(dom = "t"))
+    datatable(
+      tbl,
+      options = list(
+        dom = "t",
+        paging = FALSE,
+        scrollY = "60vh"
+      )
+    )
   })
   
   output$dl_fractions_tbl <- downloadHandler(
@@ -558,8 +584,10 @@ server <- function(input, output, session) {
       }
       
       tbl <- tryCatch({
-        moisture <- mixchar:::calculate_moisture_content(rv$processed)
-        ash <- mixchar:::calculate_ash_content(rv$processed)
+        val_or_na <- function(x) if (is.null(x) || length(x) == 0) NA_real_ else x
+
+        moisture <- val_or_na(mixchar:::calculate_moisture_content(rv$processed))
+        ash <- val_or_na(mixchar:::calculate_ash_content(rv$processed))
         fc <- calculate_fixed_carbon_fractions(
           rv$decon,
           dry_basis_fixed_carbon_hemicellulose = input$fc_hemi,
@@ -567,21 +595,30 @@ server <- function(input, output, session) {
           dry_basis_fixed_carbon_lignin = input$fc_lig
         )
         totals <- mixchar:::calculate_total_fractions(rv$decon, fc)
-        
-        fc_H <- if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp
-        fc_C <- if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp
-        fc_L <- if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp
-        
+
+        vol_H <- val_or_na(if (!is.null(fc$volatile_HC_fraction)) fc$volatile_HC_fraction else fc$Hvp)
+        vol_C <- val_or_na(if (!is.null(fc$volatile_CL_fraction)) fc$volatile_CL_fraction else fc$Cvp)
+        vol_L <- val_or_na(if (!is.null(fc$volatile_LG_fraction)) fc$volatile_LG_fraction else fc$Lvp)
+        fc_H <- val_or_na(if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp)
+        fc_C <- val_or_na(if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp)
+        fc_L <- val_or_na(if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp)
+
         data.frame(
           Component = c(
-            "Moisture", "Ash",
+            "Moisture",
+            "Hemicellulose volatile", "Cellulose volatile", "Lignin volatile",
+            "Hemicellulose fixed carbon", "Cellulose fixed carbon", "Lignin fixed carbon",
             "Hemicellulose total", "Cellulose total", "Lignin total",
-            "Hemicellulose fixed carbon", "Cellulose fixed carbon", "Lignin fixed carbon"
+            "Ash"
           ),
           Percent = round(
-            c(moisture, ash,
+            c(
+              moisture,
+              vol_H, vol_C, vol_L,
+              fc_H, fc_C, fc_L,
               totals$H_total, totals$C_total, totals$L_total,
-              fc_H, fc_C, fc_L),
+              ash
+            ),
             2
           )
         )
