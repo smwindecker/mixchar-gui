@@ -1,8 +1,47 @@
+# ============================================================================
+# ui.R - Shiny User Interface for mixchar GUI
+# ============================================================================
+#
+# Purpose:
+#   Defines the user interface layout and styling for the mixchar Shiny workbench.
+#   Uses a sidebar layout with workflow step navigation and conditional panels
+#   for step-specific controls.
+#
+# Structure:
+#   - Sidebar (width 3): Workflow step selector + conditional input panels
+#   - Main panel (width 9): Dynamic content rendered by server.R (output$step_body)
+#
+# Workflow Steps:
+#   1. read: Data upload/example selection
+#   2. process: Column mapping and processing parameters
+#   3. decon: Deconvolution parameters (peaks, seed)
+#   4. viz: Visualization options (bw, quantile bands)
+#   5. fractions: Carbon fraction parameters and display options
+#
+# UI Components:
+#   - conditionalPanel: Shows/hides inputs based on selected step
+#   - uiOutput("step_body"): Main content area (rendered server-side)
+#   - uiOutput("datafile_ui"): Dynamic file input (allows reset)
+#
+# Styling:
+#   - Uses bslib for Bootstrap 5 theming
+#   - Custom CSS for sidebar gradient and main panel styling
+#   - Google Fonts: Barlow (base), Space Grotesk (headings)
+#
+# Modification Notes:
+#   - To add a new workflow step: add to radioButtons choices and create new conditionalPanel
+#   - Input IDs must match server.R input$<id> references
+#   - Use conditionalPanel("input.step == '<step_name>'") for step-specific UI
+#
+# ============================================================================
+
 library(shiny)
 library(bslib)
 library(DT)
 library(plotly)
 
+# Application theme configuration
+# Customizes Bootstrap 5 appearance with specific colors and fonts
 app_theme <- bs_theme(
   version = 5,
   base_font = font_google("Barlow"),
@@ -13,8 +52,13 @@ app_theme <- bs_theme(
   fg = "#0f172a"
 )
 
+# ============================================================================
+# Main UI Definition
+# ============================================================================
+
 ui <- fluidPage(
   theme = app_theme,
+  # Custom CSS for sidebar gradient and main panel styling
   tags$head(tags$style(
     "
     .sidebarPanel { background: linear-gradient(180deg,#0f172a 0%,#0f766e 100%); color:#f8fafc; }
@@ -24,9 +68,13 @@ ui <- fluidPage(
   )),
   titlePanel(h1("mixchar Shiny workbench", class = "mb-0")),
   sidebarLayout(
+    # ------------------------------------------------------------------------
+    # Sidebar: Workflow Navigation and Step-Specific Controls
+    # ------------------------------------------------------------------------
     sidebarPanel(
       width = 3,
       h4("Workflow steps"),
+      # Step selector: Controls which step is active and which conditionalPanel shows
       radioButtons(
         "step", label = NULL,
         choices = c(
@@ -39,6 +87,9 @@ ui <- fluidPage(
       selected = "read"
     ),
     hr(),
+      # ----------------------------------------------------------------------
+      # Step 1: Data Loading
+      # ----------------------------------------------------------------------
       conditionalPanel(
         "input.step == 'read'",
         uiOutput("datafile_ui"),
@@ -56,6 +107,9 @@ ui <- fluidPage(
         ),
         actionButton("use_example", "Use example data", class = "btn-secondary")
       ),
+      # ----------------------------------------------------------------------
+      # Step 2: Data Processing
+      # ----------------------------------------------------------------------
       conditionalPanel(
         "input.step == 'process'",
         helpText("Example data fills defaults; provide values for your own data."),
@@ -74,12 +128,18 @@ ui <- fluidPage(
         numericInput("pyro_end", "Pyrolysis end time", value = NA, step = 0.5),
         actionButton("do_process", "Run process()", class = "btn-primary")
       ),
+      # ----------------------------------------------------------------------
+      # Step 3: Deconvolution
+      # ----------------------------------------------------------------------
       conditionalPanel(
         "input.step == 'decon'",
         selectInput("n_peaks", "Number of peaks", choices = c("Auto" = "auto", "3 peaks" = "3", "4 peaks" = "4")),
         numericInput("decon_seed", "Seed", value = 1, min = 1, step = 1),
         actionButton("run_decon", "Run deconvolve()", class = "btn-primary")
       ),
+      # ----------------------------------------------------------------------
+      # Step 4: Visualization Options
+      # ----------------------------------------------------------------------
       conditionalPanel(
         "input.step == 'viz'",
         checkboxInput("decon_bw", "Black/white plot", value = TRUE),
@@ -88,6 +148,9 @@ ui <- fluidPage(
         numericInput("band_draws", "Draws for ribbons", value = 500, min = 50, step = 50),
         numericInput("band_seed", "Ribbon seed", value = 42, min = 1, step = 1)
       ),
+      # ----------------------------------------------------------------------
+      # Step 5: Carbon Fractions
+      # ----------------------------------------------------------------------
       conditionalPanel(
         "input.step == 'fractions'",
         checkboxInput(
@@ -112,6 +175,10 @@ ui <- fluidPage(
         )
       )
     ),
+    # ------------------------------------------------------------------------
+    # Main Panel: Dynamic Content Area
+    # ------------------------------------------------------------------------
+    # Content is rendered server-side based on selected step (see server.R output$step_body)
     mainPanel(
       width = 9,
       class = "main-panel",

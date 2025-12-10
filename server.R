@@ -1,3 +1,36 @@
+# ============================================================================
+# server.R - Shiny Server Logic for mixchar GUI
+# ============================================================================
+#
+# Purpose:
+#   This file contains the server-side logic for the mixchar Shiny workbench.
+#   It handles data processing, deconvolution, visualization, and carbon
+#   fraction calculations for thermogravimetric analysis.
+#
+# Architecture:
+#   - Uses reactiveValues (rv) to manage application state
+#   - Workflow: Load data -> Process -> Deconvolve -> Visualize -> Fractions
+#   - Each step depends on previous step's outputs stored in rv
+#
+# Key Components:
+#   - rv$raw: Raw uploaded/example data
+#   - rv$processed: Processed data from mixchar::process()
+#   - rv$decon: Deconvolution results from mixchar::deconvolve()
+#   - rv$source: Tracks data source ("upload" or "example")
+#
+# Dependencies:
+#   - mixchar package (fixed-carbon branch required)
+#   - shiny, DT, plotly packages
+#   - sankey.R for Sankey diagram rendering
+#
+# Modification Notes:
+#   - When adding new workflow steps, update rv reactiveValues accordingly
+#   - UI inputs are accessed via input$<id>, outputs via output$<id>
+#   - Use req() to ensure dependencies before rendering outputs
+#   - Use observeEvent() for user-triggered actions
+#
+# ============================================================================
+
 library(shiny)
 library(mixchar)
 library(DT)
@@ -5,18 +38,32 @@ library(plotly)
 source("sankey.R")
 
 # Require the fixed-carbon branch of mixchar so carbon-fraction helpers are present.
+# This check ensures the required functions exist before the app runs.
 if (!exists("calculate_fixed_carbon_fractions", where = asNamespace("mixchar"), inherits = FALSE)) {
   stop(
     "mixchar fixed-carbon branch required. Install via remotes::install_github('smwindecker/mixchar', ref = 'fixed-carbon')."
   )
 }
 
+# ----------------------------------------------------------------------------
+# Helper Functions
+# ----------------------------------------------------------------------------
+
+#' Parse probability values from text input
+#'
+#' Converts a comma/semicolon/whitespace-separated string of probabilities
+#' into a numeric vector. Used for quantile band probabilities in deconvolution plots.
+#'
+#' @param txt Character string containing probability values (e.g., "0.025, 0.5, 0.975")
+#' @return Numeric vector of probabilities. Defaults to c(0.025, 0.5, 0.975) if parsing fails.
 parse_probs <- function(txt) {
   vals <- suppressWarnings(as.numeric(unlist(strsplit(txt, "[,;\\s]+"))))
   vals <- vals[!is.na(vals)]
   if (length(vals) == 0) c(0.025, 0.5, 0.975) else vals
 }
 
+# Default parameter values for the beech example dataset.
+# These are automatically populated when user clicks "Use example data".
 example_defaults <- list(
   skip_rows = 40,
   init_mass = 18.96,
@@ -25,6 +72,15 @@ example_defaults <- list(
   temp_units = "C"
 )
 
+#' Guess column name from candidates
+#'
+#' Attempts to match a column name in the dataframe to one of the candidate names
+#' (case-insensitive). Used for auto-selecting temperature, mass, time columns
+#' when loading example data.
+#'
+#' @param df Data frame to search
+#' @param candidates Character vector of candidate column names to match
+#' @return First matching column name, or first column in df if no match
 guess_col <- function(df, candidates) {
   nms <- names(df)
   hit <- nms[tolower(nms) %in% tolower(candidates)]
@@ -32,7 +88,24 @@ guess_col <- function(df, candidates) {
   nms[1]
 }
 
+# ============================================================================
+# Shiny Server Function
+# ============================================================================
+
 server <- function(input, output, session) {
+  # --------------------------------------------------------------------------
+  # Application State Management
+  # --------------------------------------------------------------------------
+  # Reactive values store the application state across user interactions.
+  # These values are shared across all observers and reactive expressions.
+  #
+  # rv$raw: Raw data from CSV upload or example file
+  # rv$processed: Processed data object from mixchar::process()
+  # rv$decon: Deconvolution results from mixchar::deconvolve()
+  # rv$file_reset: Counter to invalidate fileInput when reset needed
+  # rv$source: Data source identifier ("upload", "example", or "none")
+  # rv$example_path: Path to example data file if using example
+  # --------------------------------------------------------------------------
   rv <- reactiveValues(
     raw = NULL,
     processed = NULL,
@@ -42,7 +115,17 @@ server <- function(input, output, session) {
     example_path = NULL
   )
   
-  # Prefer original stage-coded data (e.g., beech has 6 stages) for the temp program plot.
+  # --------------------------------------------------------------------------
+  # Data Selection Helper Functions
+  # --------------------------------------------------------------------------
+  
+  #' Get data configuration for temperature program plot
+  #'
+  #' Determines which dataset and columns to use for the temperature program plot.
+  #' Prefers original stage-coded raw data (e.g., beech has 6 stages) over processed
+  #' data, as it preserves more detailed stage information for visualization.
+  #'
+  #' @return List with data, time_col, temp_col, and stage_col
   temp_program_data <- function() {
     if (!is.null(rv$raw)) {
       stage_col <- if (!is.null(input$stage_col) && nzchar(input$stage_col) &&
@@ -55,6 +138,7 @@ server <- function(input, output, session) {
       }
       
       if (!is.null(stage_col)) {
+        # Use raw data with user-selected or auto-detected stage column
         return(list(
           data = rv$raw,
           time_col = input$time_col,
@@ -64,6 +148,7 @@ server <- function(input, output, session) {
       }
     }
     
+    # Fallback to processed data if no stage column available in raw data
     list(
       data = rv$processed$all_data,
       time_col = "time",
@@ -72,11 +157,21 @@ server <- function(input, output, session) {
     )
   }
   
+  # --------------------------------------------------------------------------
+  # UI Input Management Functions
+  # --------------------------------------------------------------------------
+  
+  # Dynamic file input that resets when rv$file_reset changes.
+  # This allows programmatic clearing of uploaded files.
   output$datafile_ui <- renderUI({
     rv$file_reset  # invalidate when reset is requested
     fileInput("datafile", "Upload CSV", accept = c(".csv"))
   })
   
+  #' Reset all column selection inputs to empty
+  #'
+  #' Clears the column selection dropdowns when new data is loaded.
+  #' Called when user uploads a new file or resets the application.
   reset_column_inputs <- function() {
     updateSelectInput(session, "temp_col", choices = c("Select column" = ""), selected = "")
     updateSelectInput(session, "mass_col", choices = c("Select column" = ""), selected = "")
@@ -84,6 +179,13 @@ server <- function(input, output, session) {
     updateSelectInput(session, "stage_col", choices = c("Select column" = ""), selected = "")
   }
   
+  #' Update column selection inputs with dataframe column names
+  #'
+  #' Populates the column selection dropdowns with available columns from the
+  #' loaded dataframe. Optionally pre-selects columns if provided.
+  #'
+  #' @param df Data frame whose column names will populate the dropdowns
+  #' @param selected Named list with optional pre-selected columns (temp, mass, time, stage)
   set_column_inputs <- function(df, selected = list(temp = "", mass = "", time = "", stage = "")) {
     choices <- c("Select column" = "", names(df))
     updateSelectInput(
@@ -108,6 +210,10 @@ server <- function(input, output, session) {
     )
   }
   
+  #' Reset processing parameter inputs to defaults
+  #'
+  #' Clears processing inputs (mass, pyrolysis times) when new data is loaded.
+  #' Temperature units are reset to example defaults.
   reset_processing_inputs <- function() {
     updateNumericInput(session, "init_mass", value = NA_real_)
     updateNumericInput(session, "pyro_start", value = NA_real_)
@@ -115,6 +221,19 @@ server <- function(input, output, session) {
     updateSelectInput(session, "temp_units", selected = example_defaults$temp_units)
   }
 
+  # --------------------------------------------------------------------------
+  # Reproducible Script Generation
+  # --------------------------------------------------------------------------
+  
+  #' Build reproducible R script from current app state
+  #'
+  #' Generates a complete R script that reproduces the current analysis workflow.
+  #' The script includes data loading, processing, deconvolution, plotting, and
+  #' (if applicable) carbon fraction calculations.
+  #'
+  #' @return Character vector of R code lines
+  #' @note Requires rv$processed to be set. Script includes all parameters
+  #'       currently configured in the app (columns, processing params, etc.)
   build_repro_script <- function() {
     req(rv$processed)
 
@@ -165,6 +284,7 @@ server <- function(input, output, session) {
       "dev.off()"
     )
 
+    # Add deconvolution section if deconvolution has been run
     if (!is.null(rv$decon)) {
       n_peaks_val <- if (is.null(rv$decon$n_peaks)) "NULL" else rv$decon$n_peaks
       probs <- parse_probs(input$band_probs)
@@ -184,6 +304,7 @@ server <- function(input, output, session) {
         "dev.off()"
       )
 
+      # Carbon fractions are only calculated for 3-peak deconvolutions
       if (!is.null(rv$decon$n_peaks) && rv$decon$n_peaks == 3) {
         fc_lines <- c(
           "",
@@ -226,6 +347,10 @@ server <- function(input, output, session) {
     script
   }
   
+  #' Apply example data default parameters
+  #'
+  #' Populates all processing inputs with values appropriate for the beech
+  #' example dataset. Also increments file_reset to clear any uploaded file.
   apply_example_inputs <- function() {
     updateNumericInput(session, "skip_rows", value = example_defaults$skip_rows)
     updateNumericInput(session, "init_mass", value = example_defaults$init_mass)
@@ -235,6 +360,11 @@ server <- function(input, output, session) {
     rv$file_reset <- rv$file_reset + 1  # clear any previously uploaded file in the UI
   }
   
+  # --------------------------------------------------------------------------
+  # Data Loading Observers
+  # --------------------------------------------------------------------------
+  
+  # Load example data and auto-configure column selections
   observeEvent(input$use_example, {
     apply_example_inputs()
     example_path <- if (file.exists("beech_example.csv")) {
@@ -258,9 +388,11 @@ server <- function(input, output, session) {
     rv$decon <- NULL
   })
   
+  # Handle CSV file upload from user
   observeEvent(input$datafile, {
     req(input$datafile)
-    # Reset skip rows to default (0) when user uploads their own file, e.g. after using example data.
+    # Reset skip rows to default (0) when user uploads their own file.
+    # This prevents using example skip_rows value with user data.
     skip_val <- 0
     updateNumericInput(session, "skip_rows", value = skip_val)
     
@@ -274,10 +406,12 @@ server <- function(input, output, session) {
     set_column_inputs(df)
   })
   
+  # Reload data with new skip_rows value
+  # This allows users to adjust metadata rows without re-uploading
   observeEvent(input$apply_skip, {
     skip_val <- if (is.na(input$skip_rows)) 0 else input$skip_rows
     
-    # Determine which dataset to reload based on source
+    # Determine which dataset to reload based on source (upload vs example)
     data_path <- NULL
     if (!is.null(input$datafile) && rv$source == "upload") {
       data_path <- input$datafile$datapath
@@ -302,6 +436,11 @@ server <- function(input, output, session) {
     ))
   })
   
+  # --------------------------------------------------------------------------
+  # Data Display Outputs
+  # --------------------------------------------------------------------------
+  
+  # Display raw data preview table
   output$raw_preview <- renderDataTable({
     req(rv$raw)
     datatable(
@@ -319,6 +458,12 @@ server <- function(input, output, session) {
     )
   })
   
+  # --------------------------------------------------------------------------
+  # Data Processing
+  # --------------------------------------------------------------------------
+  
+  # Process raw data using mixchar::process()
+  # This is the core data transformation step that identifies pyrolysis stages
   observeEvent(input$do_process, {
     req(rv$raw)
     temp_col <- input$temp_col
@@ -326,6 +471,7 @@ server <- function(input, output, session) {
     time_col <- input$time_col
     temp_units <- input$temp_units
     
+    # Validate all required inputs are provided
     validate(
       need(!is.na(input$init_mass), "Initial mass is required."),
       need(!is.na(input$pyro_start), "Pyrolysis start time is required."),
@@ -340,6 +486,8 @@ server <- function(input, output, session) {
            "Data must include temperature, mass loss, and time columns.")
     )
     
+    # Attempt processing with error handling
+    # If processing fails, show notification and reset state
     proc <- tryCatch({
       process(
         data = rv$raw,
@@ -367,9 +515,14 @@ server <- function(input, output, session) {
     
     if (is.null(proc)) return()
     rv$processed <- proc
-    rv$decon <- NULL
+    rv$decon <- NULL  # Clear deconvolution results when new processing occurs
   })
   
+  # --------------------------------------------------------------------------
+  # Processing Results Display
+  # --------------------------------------------------------------------------
+  
+  # Display stage summary table from processed data
   output$stage_summary_tbl <- renderDataTable({
     req(rv$processed)
     df <- mixchar::stage_summary(rv$processed)
@@ -394,6 +547,8 @@ server <- function(input, output, session) {
     }
   )
   
+  # Temperature program plot showing stages over time
+  # Uses temp_program_data() to select appropriate data source
   output$temp_program_plot <- renderPlot({
     req(rv$processed)
     cfg <- temp_program_data()
@@ -417,6 +572,7 @@ server <- function(input, output, session) {
     }
   )
   
+  # Mass loss plot with stage boundaries
   output$process_plot <- renderPlot({
     req(rv$processed)
     plot(rv$processed,
@@ -436,8 +592,15 @@ server <- function(input, output, session) {
     }
   )
   
+  # --------------------------------------------------------------------------
+  # Deconvolution
+  # --------------------------------------------------------------------------
+  
+  # Run deconvolution analysis on processed data
+  # This separates the pyrolysis curve into component peaks (hemicellulose, cellulose, lignin)
   observeEvent(input$run_decon, {
     req(rv$processed)
+    # Convert UI selection to numeric or NULL for auto-detection
     np <- switch(input$n_peaks, auto = NULL, `3` = 3, `4` = 4)
     rv$decon <- NULL  # hide outputs/download until fresh results are ready
     decon_res <- NULL
@@ -461,6 +624,11 @@ server <- function(input, output, session) {
     rv$decon <- decon_res
   })
   
+  # --------------------------------------------------------------------------
+  # Deconvolution Results Display
+  # --------------------------------------------------------------------------
+  
+  # Display deconvolution weights table
   output$weights_tbl <- renderDataTable({
     req(rv$decon)
     df <- rv$decon$weights
@@ -485,6 +653,7 @@ server <- function(input, output, session) {
     }
   )
   
+  # Deconvolution plot with optional quantile bands
   output$decon_plot <- renderPlot({
     req(rv$decon)
     probs <- parse_probs(input$band_probs)
@@ -512,12 +681,24 @@ server <- function(input, output, session) {
     }
   )
 
+  # --------------------------------------------------------------------------
+  # Carbon Fraction Calculations
+  # --------------------------------------------------------------------------
+  
+  #' Calculate carbon fraction values for display
+  #'
+  #' Computes moisture, ash, volatile, fixed carbon, and total fractions for
+  #' hemicellulose, cellulose, and lignin. Only works with 3-peak deconvolutions.
+  #'
+  #' @return Named list with all fraction values (moisture, ash, vol_H, vol_C, etc.)
+  #' @note This is a reactive expression that recalculates when dependencies change
   fraction_values <- reactive({
     req(rv$processed, rv$decon)
     if (is.null(rv$decon$n_peaks) || rv$decon$n_peaks != 3) {
       stop("Carbon fractions currently supported for 3 peaks. Please deconvolve with 3 peaks (or Auto -> 3).")
     }
 
+    # Helper to safely extract values, returning NA if missing
     val_or_na <- function(x) if (is.null(x) || length(x) == 0) NA_real_ else x
 
     moisture <- val_or_na(mixchar:::calculate_moisture_content(rv$processed))
@@ -530,6 +711,9 @@ server <- function(input, output, session) {
     )
     totals <- mixchar:::calculate_total_fractions(rv$decon, fc)
 
+    # Extract fraction values, handling both new and legacy field names
+    # New names: volatile_HC_fraction, fixed_carbon_HC_fraction, etc.
+    # Legacy names: Hvp, Hfp, etc. (used as fallback)
     vol_H <- val_or_na(if (!is.null(fc$volatile_HC_fraction)) fc$volatile_HC_fraction else fc$Hvp)
     vol_C <- val_or_na(if (!is.null(fc$volatile_CL_fraction)) fc$volatile_CL_fraction else fc$Cvp)
     vol_L <- val_or_na(if (!is.null(fc$volatile_LG_fraction)) fc$volatile_LG_fraction else fc$Lvp)
@@ -551,28 +735,6 @@ server <- function(input, output, session) {
       total_L = val_or_na(totals$L_total)
     )
   })
-
-  fraction_table <- function(vals) {
-    data.frame(
-      Component = c(
-        "Moisture",
-        "Hemicellulose volatile", "Cellulose volatile", "Lignin volatile",
-        "Hemicellulose fixed carbon", "Cellulose fixed carbon", "Lignin fixed carbon",
-        "Hemicellulose total", "Cellulose total", "Lignin total",
-        "Ash"
-      ),
-      Percent = round(
-        c(
-          vals$moisture,
-          vals$vol_H, vals$vol_C, vals$vol_L,
-          vals$fc_H, vals$fc_C, vals$fc_L,
-          vals$total_H, vals$total_C, vals$total_L,
-          vals$ash
-        ),
-        2
-      )
-    )
-  }
   
   output$fractions_tbl <- renderDataTable({
     vals <- tryCatch(fraction_values(), error = function(e) {
@@ -615,6 +777,21 @@ server <- function(input, output, session) {
     }
   )
   
+  # --------------------------------------------------------------------------
+  # Dynamic UI Rendering
+  # --------------------------------------------------------------------------
+  
+  #' Render main content area based on selected workflow step
+  #'
+  #' Dynamically generates the main panel content based on which step the user
+  #' has selected. Each step shows different outputs and controls.
+  #'
+  #' Steps:
+  #'   - read: Data upload and preview
+  #'   - process: Processing results, stage summary, plots
+  #'   - decon: Deconvolution weights table
+  #'   - viz: Deconvolution visualization
+  #'   - fractions: Carbon fractions table or Sankey diagram
   output$step_body <- renderUI({
     switch(input$step,
            read = tagList(
