@@ -100,7 +100,7 @@ render_fractions_sankey <- function(vals) {
     0.65,  # Lignin total
     0.92,  # Ash (bottom)
     0.22, 0.30,  # Hemi volatile / fixed carbon near Hemi total
-    0.42, 0.50,  # Cell volatile / fixed carbon near Cell total
+    0.42, 0.58,  # Cell volatile / fixed carbonnear Hemi total
     0.62, 0.70   # Lignin volatile / fixed carbon near Lignin total
   )
 
@@ -108,10 +108,10 @@ render_fractions_sankey <- function(vals) {
   # Color Scheme
   # --------------------------------------------------------------------------
   # Component-specific colors for visual consistency across nodes and links
-  col_hemi <- "#0ea5e9"    # Blue for hemicellulose
+  col_hemi <- "#14b8a6"    # Teal for hemicellulose
   col_cell <- "#22c55e"    # Green for cellulose
   col_lig <- "#f59e0b"     # Orange for lignin
-  col_moist <- "#14b8a6"   # Teal for moisture
+  col_moist <- "#0ea5e9"   # Blue for moisture
   col_ash <- "#475569"     # Gray for ash
 
   # Node colors matching component types
