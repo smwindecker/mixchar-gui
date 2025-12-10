@@ -126,7 +126,7 @@ ui <- fluidPage(
         numericInput("init_mass", "Initial mass (mg)", value = NA, min = 0, step = 0.01),
         numericInput("pyro_start", "Pyrolysis start time", value = NA, step = 0.5),
         numericInput("pyro_end", "Pyrolysis end time", value = NA, step = 0.5),
-        actionButton("do_process", "Run process()", class = "btn-primary")
+        actionButton("do_process", "Run process", class = "btn-primary")
       ),
       # ----------------------------------------------------------------------
       # Step 3: Deconvolution
@@ -135,7 +135,7 @@ ui <- fluidPage(
         "input.step == 'decon'",
         selectInput("n_peaks", "Number of peaks", choices = c("Auto" = "auto", "3 peaks" = "3", "4 peaks" = "4")),
         numericInput("decon_seed", "Seed", value = 1, min = 1, step = 1),
-        actionButton("run_decon", "Run deconvolve()", class = "btn-primary")
+        actionButton("run_decon", "Run deconvolve", class = "btn-primary")
       ),
       # ----------------------------------------------------------------------
       # Step 4: Visualization Options

@@ -1,0 +1,15 @@
+mixchar-gui To-Do List
+
+Hello, I'm Ryan, the original creator of this software package. This document lists unresolved work and optimization ideas so future contributors can pick them up quickly.
+
+1. Fix the "Run Process" failure when using a new test set in the Shiny UI (error: "Processing failed. Please ensure the temperature units (C/K) match the file and the pyrolysis window is appropriate. The replacement data has 0 rows, but the dataset has 1544 rows.").
+2. In step 2 ("Process data"), link the Temperature Program plot to the "Stage column (optional, for plotting)" selection.
+3. With the example test set, the Temperature Program plot does not perfectly match the three-stage display in Stage summary; consider mapping the three stages to three distinct colors in the plot.
+4. The fixed_carbon branch supports four peaks. After deconvolution there may be four values, but calculate_fixed_carbon_fractions() currently sums the two hemicellulose peaks. Update server.R to handle four peaks correctly and re-confirm the relevant line numbers.
+5. Refine the name matching used when retrieving outputs from calculate_fixed_carbon_fractions() in server.R. The current approach is broad to avoid mixchar naming conflicts; improve it only after confirming function naming in the mixchar package.
+6. Reduce duplicated code between the "dl_" download outputs and the corresponding main outputs; prefer shared helper functions so future changes stay in sync.
+7. Improve the Sankey visualization in the "Carbon fractions" step (e.g., reposition the "Total Biomass (100%)" label so it is not tied to a single flow). The current version is a rough prototype.
+8. Continue modularizing server functions: the Sankey code is already separated; similarly split other major nodes to simplify later edits or removal.
+9. (Optional) For the "Pyrolysis phase deconvolution plot," add an option to plot selected carbon types individually.
+10.In the GUI's visual interface, certain buttons, fields, and outputs may require more specialized descriptions. Consulting the developers of packages like mixchar may be necessary to obtain detailed descriptive information.
+11. Clean up leftover, deprecated content in the mixchar package (e.g., the first-generation gui folder and unused functions).
