@@ -1,6 +1,8 @@
 library(shiny)
 library(mixchar)
 library(DT)
+library(plotly)
+source("sankey.R")
 
 # Require the fixed-carbon branch of mixchar so carbon-fraction helpers are present.
 if (!exists("calculate_fixed_carbon_fractions", where = asNamespace("mixchar"), inherits = FALSE)) {
@@ -509,61 +511,75 @@ server <- function(input, output, session) {
       dev.off()
     }
   )
+
+  fraction_values <- reactive({
+    req(rv$processed, rv$decon)
+    if (is.null(rv$decon$n_peaks) || rv$decon$n_peaks != 3) {
+      stop("Carbon fractions currently supported for 3 peaks. Please deconvolve with 3 peaks (or Auto -> 3).")
+    }
+
+    val_or_na <- function(x) if (is.null(x) || length(x) == 0) NA_real_ else x
+
+    moisture <- val_or_na(mixchar:::calculate_moisture_content(rv$processed))
+    ash <- val_or_na(mixchar:::calculate_ash_content(rv$processed))
+    fc <- calculate_fixed_carbon_fractions(
+      rv$decon,
+      dry_basis_fixed_carbon_hemicellulose = input$fc_hemi,
+      dry_basis_fixed_carbon_cellulose = input$fc_cell,
+      dry_basis_fixed_carbon_lignin = input$fc_lig
+    )
+    totals <- mixchar:::calculate_total_fractions(rv$decon, fc)
+
+    vol_H <- val_or_na(if (!is.null(fc$volatile_HC_fraction)) fc$volatile_HC_fraction else fc$Hvp)
+    vol_C <- val_or_na(if (!is.null(fc$volatile_CL_fraction)) fc$volatile_CL_fraction else fc$Cvp)
+    vol_L <- val_or_na(if (!is.null(fc$volatile_LG_fraction)) fc$volatile_LG_fraction else fc$Lvp)
+    fc_H <- val_or_na(if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp)
+    fc_C <- val_or_na(if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp)
+    fc_L <- val_or_na(if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp)
+
+    list(
+      moisture = moisture,
+      ash = ash,
+      vol_H = vol_H,
+      vol_C = vol_C,
+      vol_L = vol_L,
+      fc_H = fc_H,
+      fc_C = fc_C,
+      fc_L = fc_L,
+      total_H = val_or_na(totals$H_total),
+      total_C = val_or_na(totals$C_total),
+      total_L = val_or_na(totals$L_total)
+    )
+  })
+
+  fraction_table <- function(vals) {
+    data.frame(
+      Component = c(
+        "Moisture",
+        "Hemicellulose volatile", "Cellulose volatile", "Lignin volatile",
+        "Hemicellulose fixed carbon", "Cellulose fixed carbon", "Lignin fixed carbon",
+        "Hemicellulose total", "Cellulose total", "Lignin total",
+        "Ash"
+      ),
+      Percent = round(
+        c(
+          vals$moisture,
+          vals$vol_H, vals$vol_C, vals$vol_L,
+          vals$fc_H, vals$fc_C, vals$fc_L,
+          vals$total_H, vals$total_C, vals$total_L,
+          vals$ash
+        ),
+        2
+      )
+    )
+  }
   
   output$fractions_tbl <- renderDataTable({
-    req(rv$processed, rv$decon)
-    validate(
-      need(rv$decon$n_peaks == 3,
-           "Carbon fractions currently supported for 3 peaks. Please deconvolve with 3 peaks (or Auto → 3).")
-    )
-
-    tbl <- tryCatch({
-      val_or_na <- function(x) if (is.null(x) || length(x) == 0) NA_real_ else x
-
-      moisture <- val_or_na(mixchar:::calculate_moisture_content(rv$processed))
-      ash <- val_or_na(mixchar:::calculate_ash_content(rv$processed))
-      fc <- calculate_fixed_carbon_fractions(
-        rv$decon,
-        dry_basis_fixed_carbon_hemicellulose = input$fc_hemi,
-        dry_basis_fixed_carbon_cellulose = input$fc_cell,
-        dry_basis_fixed_carbon_lignin = input$fc_lig
-      )
-      totals <- mixchar:::calculate_total_fractions(rv$decon, fc)
-
-      # 支持旧字段名和新字段名：优先 verbose 名称，若不存在则退回缩写
-      vol_H <- val_or_na(if (!is.null(fc$volatile_HC_fraction)) fc$volatile_HC_fraction else fc$Hvp)
-      vol_C <- val_or_na(if (!is.null(fc$volatile_CL_fraction)) fc$volatile_CL_fraction else fc$Cvp)
-      vol_L <- val_or_na(if (!is.null(fc$volatile_LG_fraction)) fc$volatile_LG_fraction else fc$Lvp)
-      fc_H <- val_or_na(if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp)
-      fc_C <- val_or_na(if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp)
-      fc_L <- val_or_na(if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp)
-
-      data.frame(
-        Component = c(
-          "Moisture",
-          "Hemicellulose volatile", "Cellulose volatile", "Lignin volatile",
-          "Hemicellulose fixed carbon", "Cellulose fixed carbon", "Lignin fixed carbon",
-          "Hemicellulose total", "Cellulose total", "Lignin total",
-          "Ash"
-        ),
-        Percent = round(
-          c(
-            moisture,
-            vol_H, vol_C, vol_L,
-            fc_H, fc_C, fc_L,
-            totals$H_total, totals$C_total, totals$L_total,
-            ash
-          ),
-          2
-        )
-      )
-    }, error = function(e) {
-      data.frame(
-        Component = "Error",
-        Percent = NA_real_,
-        Note = paste("Unable to compute fractions:", e$message)
-      )
+    vals <- tryCatch(fraction_values(), error = function(e) {
+      validate(need(FALSE, e$message))
     })
+
+    tbl <- fraction_table(vals)
     
     datatable(
       tbl,
@@ -578,61 +594,18 @@ server <- function(input, output, session) {
   output$dl_fractions_tbl <- downloadHandler(
     filename = function() "carbon_fractions.csv",
     content = function(file) {
-      req(rv$processed, rv$decon)
-      if (rv$decon$n_peaks != 3) {
-        stop("Carbon fractions currently supported for 3 peaks. Please deconvolve with 3 peaks (or Auto -> 3).")
-      }
-      
-      tbl <- tryCatch({
-        val_or_na <- function(x) if (is.null(x) || length(x) == 0) NA_real_ else x
-
-        moisture <- val_or_na(mixchar:::calculate_moisture_content(rv$processed))
-        ash <- val_or_na(mixchar:::calculate_ash_content(rv$processed))
-        fc <- calculate_fixed_carbon_fractions(
-          rv$decon,
-          dry_basis_fixed_carbon_hemicellulose = input$fc_hemi,
-          dry_basis_fixed_carbon_cellulose = input$fc_cell,
-          dry_basis_fixed_carbon_lignin = input$fc_lig
-        )
-        totals <- mixchar:::calculate_total_fractions(rv$decon, fc)
-
-        vol_H <- val_or_na(if (!is.null(fc$volatile_HC_fraction)) fc$volatile_HC_fraction else fc$Hvp)
-        vol_C <- val_or_na(if (!is.null(fc$volatile_CL_fraction)) fc$volatile_CL_fraction else fc$Cvp)
-        vol_L <- val_or_na(if (!is.null(fc$volatile_LG_fraction)) fc$volatile_LG_fraction else fc$Lvp)
-        fc_H <- val_or_na(if (!is.null(fc$fixed_carbon_HC_fraction)) fc$fixed_carbon_HC_fraction else fc$Hfp)
-        fc_C <- val_or_na(if (!is.null(fc$fixed_carbon_CL_fraction)) fc$fixed_carbon_CL_fraction else fc$Cfp)
-        fc_L <- val_or_na(if (!is.null(fc$fixed_carbon_LG_fraction)) fc$fixed_carbon_LG_fraction else fc$Lfp)
-
-        data.frame(
-          Component = c(
-            "Moisture",
-            "Hemicellulose volatile", "Cellulose volatile", "Lignin volatile",
-            "Hemicellulose fixed carbon", "Cellulose fixed carbon", "Lignin fixed carbon",
-            "Hemicellulose total", "Cellulose total", "Lignin total",
-            "Ash"
-          ),
-          Percent = round(
-            c(
-              moisture,
-              vol_H, vol_C, vol_L,
-              fc_H, fc_C, fc_L,
-              totals$H_total, totals$C_total, totals$L_total,
-              ash
-            ),
-            2
-          )
-        )
-      }, error = function(e) {
-        data.frame(
-          Component = "Error",
-          Percent = NA_real_,
-          Note = paste("Unable to compute fractions:", e$message)
-        )
-      })
-      
+      vals <- fraction_values()
+      tbl <- fraction_table(vals)
       write.csv(tbl, file, row.names = FALSE)
     }
   )
+
+  output$fractions_sankey <- renderPlotly({
+    vals <- tryCatch(fraction_values(), error = function(e) {
+      validate(need(FALSE, e$message))
+    })
+    render_fractions_sankey(vals)
+  })
 
   output$dl_repro_script <- downloadHandler(
     filename = function() "mixchar_reproducible_analysis.R",
@@ -736,7 +709,7 @@ server <- function(input, output, session) {
                )
              ),
              plotOutput("decon_plot", height = "520px")
-            ),
+           ),
             fractions = tagList(
               div(
                 class = "position-relative mb-2",
@@ -750,7 +723,11 @@ server <- function(input, output, session) {
                 }
               ),
               p("Adjust assumed fixed carbon percentages for each pseudo-component in the sidebar if needed."),
-              DTOutput("fractions_tbl"),
+              if (isTRUE(input$show_sankey)) {
+                plotlyOutput("fractions_sankey", height = "640px")
+              } else {
+                DTOutput("fractions_tbl")
+              },
               if (!is.null(rv$processed) && !is.null(rv$decon)) {
                 div(
                   class = "d-flex justify-content-end mt-3",

@@ -11,7 +11,17 @@ Shiny GUI for the `mixchar` package (thermogravimetric deconvolution).
   # or install from your local fixed-carbon checkout:
   # remotes::install_local("/path/to/mixchar")
   ```
-- Shiny runtime (installs automatically with `install.packages("shiny")`); the app also uses `DT`.
+- Shiny runtime (`shiny`, `DT`) and `plotly` for the Sankey diagram:  
+  ```r
+  install.packages(c("shiny", "DT", "plotly"))
+  ```
+
+### Quick install & run (copy-paste)
+```r
+install.packages(c("shiny","DT","bslib","plotly","remotes"), repos = "https://cloud.r-project.org")
+remotes::install_github("smwindecker/mixchar", ref = "fixed-carbon", upgrade = "never")
+shiny::runApp(".")
+```
 
 ## Getting the GUI
 - Download/clone the GUI repo: <https://github.com/smwindecker/mixchar-gui>

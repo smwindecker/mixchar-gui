@@ -1,6 +1,7 @@
 library(shiny)
 library(bslib)
 library(DT)
+library(plotly)
 
 app_theme <- bs_theme(
   version = 5,
@@ -89,6 +90,11 @@ ui <- fluidPage(
       ),
       conditionalPanel(
         "input.step == 'fractions'",
+        checkboxInput(
+          "show_sankey",
+          "Show Sankey diagram (replaces table)",
+          value = FALSE
+        ),
         numericInput(
           "fc_hemi",
           "Hemicellulose fixed carbon (% dry basis)",
