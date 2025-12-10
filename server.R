@@ -685,6 +685,27 @@ server <- function(input, output, session) {
   # Carbon Fraction Calculations
   # --------------------------------------------------------------------------
   
+  # Format carbon fraction values into a two-column table for display/download.
+  fraction_table <- function(vals) {
+    data.frame(
+      Component = c(
+        "Moisture",
+        "Hemicellulose volatile", "Cellulose volatile", "Lignin volatile",
+        "Hemicellulose fixed carbon", "Cellulose fixed carbon", "Lignin fixed carbon",
+        "Hemicellulose total", "Cellulose total", "Lignin total",
+        "Ash"
+      ),
+      Percent = round(c(
+        vals$moisture,
+        vals$vol_H, vals$vol_C, vals$vol_L,
+        vals$fc_H, vals$fc_C, vals$fc_L,
+        vals$total_H, vals$total_C, vals$total_L,
+        vals$ash
+      ), 2),
+      check.names = FALSE
+    )
+  }
+  
   #' Calculate carbon fraction values for display
   #'
   #' Computes moisture, ash, volatile, fixed carbon, and total fractions for
