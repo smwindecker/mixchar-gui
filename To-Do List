@@ -13,3 +13,4 @@ Hello, I'm Ryan, the original creator of this software package. This document li
 9. (Optional) For the "Pyrolysis phase deconvolution plot," add an option to plot selected carbon types individually.
 10.In the GUI's visual interface, certain buttons, fields, and outputs may require more specialized descriptions. Consulting the developers of packages like mixchar may be necessary to obtain detailed descriptive information.
 11. Clean up leftover, deprecated content in the mixchar package (e.g., the first-generation gui folder and unused functions).
+12.All references to this Shiny (GUI) currently originate from the mixchar fixed-carbon branch. Once merged, please note changes to paths and comments.
