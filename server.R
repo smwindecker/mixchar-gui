@@ -41,7 +41,7 @@ source("sankey.R")
 # This check ensures the required functions exist before the app runs.
 if (!exists("calculate_fixed_carbon_fractions", where = asNamespace("mixchar"), inherits = FALSE)) {
   stop(
-    "mixchar fixed-carbon branch required. Install via remotes::install_github('smwindecker/mixchar', ref = 'fixed-carbon')."
+    "mixchar fixed-carbon branch required. Install via remotes::install_github('smwindecker/mixchar@v0.1.1-dev')."
   )
 }
 
@@ -66,7 +66,7 @@ parse_probs <- function(txt) {
 # These are automatically populated when user clicks "Use example data".
 example_defaults <- list(
   skip_rows = 40,
-  init_mass = 18.96,
+  init_mass = 10.64,
   pyro_start = 127,
   pyro_end = 191.5,
   temp_units = "C"
@@ -186,7 +186,8 @@ server <- function(input, output, session) {
   #'
   #' @param df Data frame whose column names will populate the dropdowns
   #' @param selected Named list with optional pre-selected columns (temp, mass, time, stage)
-  set_column_inputs <- function(df, selected = list(temp = "", mass = "", time = "", stage = "")) {
+  set_column_inputs <- function(df, selected = list(temp = "", mass = "", 
+                                                    time = "", stage = "")) {
     choices <- c("Select column" = "", names(df))
     updateSelectInput(
       session, "temp_col",
