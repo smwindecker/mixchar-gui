@@ -35,6 +35,7 @@ library(shiny)
 library(mixchar)
 library(DT)
 library(plotly)
+library(ggplot2)
 source("sankey.R")
 
 # Require the fixed-carbon branch of mixchar so carbon-fraction helpers are present.
